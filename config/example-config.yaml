@@ -1,0 +1,60 @@
+# Example configuration for Self-Driving Documentation Improver
+
+exploration:
+  # Exploration mode: quick, standard, or deep
+  mode: standard
+
+  # Maximum depth for recursive exploration
+  max_depth: 10
+
+  # Follow links during web exploration
+  follow_links: true
+
+  # Analyze inline comments
+  analyze_comments: true
+
+  # Check for missing examples
+  check_examples: true
+
+  # Patterns to exclude during exploration
+  exclude_patterns:
+    - "**/__pycache__/**"
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/venv/**"
+    - "**/env/**"
+    - "**/*.pyc"
+    - "**/build/**"
+    - "**/dist/**"
+    - "**/.pytest_cache/**"
+
+  # Patterns to include during exploration
+  include_patterns:
+    - "**/*.py"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.jsx"
+    - "**/*.tsx"
+    - "**/*.md"
+
+generation:
+  # Claude model to use
+  model: claude-3-5-sonnet-20241022
+
+  # Temperature for generation (0.0 - 1.0)
+  temperature: 0.3
+
+  # Maximum tokens per generation
+  max_tokens: 4000
+
+  # Documentation style: google, numpy, or sphinx
+  style: google
+
+  # Include usage examples in documentation
+  include_examples: true
+
+  # Include type hints in documentation
+  include_type_hints: true
+
+  # Automatically apply improvements (use with caution!)
+  auto_apply: false
