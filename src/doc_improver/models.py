@@ -57,6 +57,7 @@ class CodeEntity(BaseModel):
     parameters: List[Dict[str, Any]] = Field(default_factory=list)
     return_type: Optional[str] = None
     decorators: List[str] = Field(default_factory=list)
+    context: Optional[Dict[str, Any]] = None  # Additional context (body, raises, etc.)
 
 
 class WebPage(BaseModel):

@@ -231,7 +231,17 @@ class CacheManager:
             logger.warning(f"Error reading file {file_path}: {e}")
             return
 
-        entities_json = json.dumps([e.dict() if hasattr(e, 'dict') else e for e in entities])
+        # Handle both Pydantic v1 and v2
+        serialized_entities = []
+        for e in entities:
+            if hasattr(e, 'model_dump'):  # Pydantic v2
+                serialized_entities.append(e.model_dump())
+            elif hasattr(e, 'dict'):  # Pydantic v1
+                serialized_entities.append(e.dict())
+            else:  # Already a dict
+                serialized_entities.append(e)
+
+        entities_json = json.dumps(serialized_entities)
 
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -317,14 +327,20 @@ class SyncCacheManager:
         self.async_manager = CacheManager(cache_dir)
 
     def _run_async(self, coro):
-        """Run async coroutine synchronously."""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        """Run async coroutine synchronously.
 
-        return loop.run_until_complete(coro)
+        Uses asyncio.run() which is safer for mixed environments.
+        """
+        import sys
+        if sys.version_info >= (3, 7):
+            return asyncio.run(coro)
+        else:
+            # Fallback for Python 3.6
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
 
     def get_api_response(self, cache_key: str) -> Optional[str]:
         return self._run_async(self.async_manager.get_api_response(cache_key))
