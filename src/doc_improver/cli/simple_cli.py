@@ -38,16 +38,20 @@ def cli():
 @cli.command()
 @click.argument('path', type=click.Path(exists=True))
 @click.option('--apply', is_flag=True, help='Apply improvements (requires API key)')
+@click.option('--dry-run', is_flag=True, help='Show what would be changed without applying')
 @click.option('--backup/--no-backup', default=True, help='Backup files before changes')
 @click.option('--max-improvements', type=int, default=10, help='Maximum improvements to apply')
 @click.option('--verbose', '-v', is_flag=True, help='Show detailed output')
-def analyze(path: str, apply: bool, backup: bool, max_improvements: int, verbose: bool):
+@click.option('--format', type=click.Choice(['table', 'json', 'simple']), default='table', help='Output format')
+def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvements: int, verbose: bool, format: str):
     """
     Analyze code for documentation gaps.
 
     Examples:
         doc-improver analyze ./my_project
-        doc-improver analyze ./my_project --apply
+        doc-improver analyze ./my_project --verbose
+        doc-improver analyze ./my_project --apply --dry-run
+        doc-improver analyze ./my_project --format json
     """
     console.print(Panel.fit(
         "[bold cyan]Documentation Improver[/bold cyan]\n"
@@ -93,7 +97,7 @@ def analyze(path: str, apply: bool, backup: bool, max_improvements: int, verbose
     console.print(f"  Found {len(gaps)} gaps")
 
     # Show summary table
-    _show_gap_summary(gaps)
+    _show_gap_summary(gaps, format=format, verbose=verbose)
 
     # Step 3: Generate improvements (if API key available)
     if apply:
@@ -145,20 +149,24 @@ def analyze(path: str, apply: bool, backup: bool, max_improvements: int, verbose
 
             # Step 4: Apply improvements
             if improvements and can_apply_improvements():
-                console.print(f"\n[cyan]Step 4:[/cyan] Applying improvements")
+                if dry_run:
+                    console.print(f"\n[cyan]Step 4:[/cyan] Dry run - showing what would be changed")
+                    _show_dry_run_preview(improvements)
+                else:
+                    console.print(f"\n[cyan]Step 4:[/cyan] Applying improvements")
 
-                if backup:
-                    _backup_files(improvements)
+                    if backup:
+                        _backup_files(improvements)
 
-                rewriter = ASTRewriter()
-                stats = rewriter.apply_improvements_batch(improvements, dry_run=False)
+                    rewriter = ASTRewriter()
+                    stats = rewriter.apply_improvements_batch(improvements, dry_run=False)
 
-                console.print(f"[green]✓ Applied {stats['applied']} improvements[/green]")
-                if stats['failed'] > 0:
-                    console.print(f"[yellow]⚠ Failed {stats['failed']} improvements[/yellow]")
+                    console.print(f"[green]✓ Applied {stats['applied']} improvements[/green]")
+                    if stats['failed'] > 0:
+                        console.print(f"[yellow]⚠ Failed {stats['failed']} improvements[/yellow]")
 
-                # Show what was applied
-                _show_applied_improvements(improvements)
+                    # Show what was applied
+                    _show_applied_improvements(improvements)
 
             elif improvements:
                 console.print("\n[yellow]libcst not available - cannot apply automatically[/yellow]")
@@ -249,30 +257,73 @@ def check():
             console.print("  pip install libcst")
 
 
-def _show_gap_summary(gaps):
-    """Display gap summary table."""
+def _show_gap_summary(gaps, format='table', verbose=False):
+    """Display gap summary in specified format."""
     from doc_improver.models import Severity
+    import json
 
-    table = Table(title="Documentation Gaps by Severity")
-    table.add_column("Severity", style="cyan")
-    table.add_column("Count", justify="right", style="white")
-    table.add_column("Examples", style="dim")
+    if format == 'json':
+        # JSON format
+        gaps_data = []
+        for gap in gaps:
+            gap_dict = {
+                'id': gap.id,
+                'severity': gap.severity.value,
+                'type': gap.gap_type.value,
+                'description': gap.description,
+                'location': gap.location,
+            }
+            if gap.entity:
+                gap_dict['entity'] = {
+                    'name': gap.entity.name,
+                    'type': gap.entity.type,
+                    'file_path': gap.entity.file_path,
+                    'line_number': gap.entity.line_number,
+                }
+            gaps_data.append(gap_dict)
 
-    for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
-        severity_gaps = [g for g in gaps if g.severity == severity]
-        if severity_gaps:
-            color = {"critical": "red", "high": "yellow", "medium": "blue", "low": "green"}[severity.value]
-            examples = ", ".join([g.entity.name for g in severity_gaps[:3] if g.entity])
-            if len(severity_gaps) > 3:
-                examples += "..."
+        console.print("\n")
+        console.print(json.dumps(gaps_data, indent=2))
 
-            table.add_row(
-                f"[{color}]{severity.value.upper()}[/{color}]",
-                str(len(severity_gaps)),
-                examples
-            )
+    elif format == 'simple':
+        # Simple text format
+        console.print("\n")
+        for gap in gaps:
+            severity_color = {"critical": "red", "high": "yellow", "medium": "blue", "low": "cyan"}[gap.severity.value]
+            console.print(f"[{severity_color}]{gap.severity.value.upper()}[/{severity_color}] {gap.location}: {gap.description}")
 
-    console.print("\n", table)
+    else:
+        # Table format (default)
+        table = Table(title="Documentation Gaps by Severity")
+        table.add_column("Severity", style="cyan")
+        table.add_column("Count", justify="right", style="white")
+        table.add_column("Examples", style="dim")
+
+        for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
+            severity_gaps = [g for g in gaps if g.severity == severity]
+            if severity_gaps:
+                color = {"critical": "red", "high": "yellow", "medium": "blue", "low": "green"}[severity.value]
+                examples = ", ".join([g.entity.name for g in severity_gaps[:3] if g.entity])
+                if len(severity_gaps) > 3:
+                    examples += "..."
+
+                table.add_row(
+                    f"[{color}]{severity.value.upper()}[/{color}]",
+                    str(len(severity_gaps)),
+                    examples
+                )
+
+        console.print("\n", table)
+
+        # Show detailed list in verbose mode
+        if verbose:
+            console.print("\n[bold]Detailed gap list:[/bold]")
+            for gap in gaps:
+                severity_color = {"critical": "red", "high": "yellow", "medium": "blue", "low": "cyan"}[gap.severity.value]
+                console.print(f"\n  [{severity_color}]{gap.severity.value.upper()}[/{severity_color}] {gap.location}")
+                console.print(f"    {gap.description}")
+                if gap.entity and gap.entity.signature:
+                    console.print(f"    [dim]Signature: {gap.entity.signature[:100]}...[/dim]")
 
 
 def _backup_files(improvements):
@@ -309,6 +360,37 @@ def _show_applied_improvements(improvements):
 
     if len(improvements) > 5:
         console.print(f"  ... and {len(improvements) - 5} more")
+
+
+def _show_dry_run_preview(improvements):
+    """Show what would be changed in dry-run mode."""
+    console.print("\n[bold]Preview of changes (dry-run mode):[/bold]")
+    console.print("[dim]No files will be modified[/dim]\n")
+
+    for imp in improvements:
+        if imp.gap.entity:
+            console.print(f"\n[cyan]File:[/cyan] {imp.gap.entity.file_path}:{imp.gap.entity.line_number}")
+            console.print(f"[cyan]Entity:[/cyan] {imp.gap.entity.name} ({imp.gap.entity.type})")
+            console.print(f"[cyan]Issue:[/cyan] {imp.gap.description}")
+
+            # Show current state
+            if imp.gap.entity.docstring:
+                console.print(f"\n[yellow]Current documentation:[/yellow]")
+                console.print(f"  {imp.gap.entity.docstring[:200]}...")
+            else:
+                console.print(f"\n[yellow]Current:[/yellow] No documentation")
+
+            # Show proposed documentation
+            console.print(f"\n[green]Proposed documentation:[/green]")
+            doc_preview = imp.improved_documentation[:300] if len(imp.improved_documentation) > 300 else imp.improved_documentation
+            console.print(f"  {doc_preview}")
+            if len(imp.improved_documentation) > 300:
+                console.print("  ...")
+
+            console.print("-" * 70)
+
+    console.print(f"\n[bold]Total changes that would be applied:[/bold] {len(improvements)}")
+    console.print("[dim]Run without --dry-run to apply these changes[/dim]")
 
 
 def main():
