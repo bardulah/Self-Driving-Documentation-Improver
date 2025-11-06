@@ -42,48 +42,149 @@ You'll see:
 ### 3. Analyze Your Own Code
 
 ```bash
-# Just find gaps (no API needed)
-python -c "
-from doc_improver import CodeExplorer, GapDetector
-from doc_improver.models import ExplorationConfig, TargetType
+# Check setup
+doc-improver check
 
-config = ExplorationConfig(target_type=TargetType.CODE, target_path_or_url='./your_project')
-explorer = CodeExplorer(config, use_cache=False)
-entities = explorer.explore()
+# Basic analysis (no API needed)
+doc-improver analyze ./your_project
 
-detector = GapDetector()
-gaps = detector.analyze_code_entities(entities)
+# Show detailed information
+doc-improver analyze ./your_project --verbose
 
-print(f'Found {len(gaps)} documentation gaps')
-for gap in gaps[:5]:
-    print(f'  - {gap.description}')
-"
+# Show only statistics
+doc-improver analyze ./your_project --stats-only
+
+# Filter by severity (only show critical and high)
+doc-improver analyze ./your_project --min-severity high
+
+# Output as JSON (for CI/CD)
+doc-improver analyze ./your_project --format json
+
+# Filter files
+doc-improver analyze ./your_project --include "*.py" --exclude "test_*"
 ```
 
 ## With Claude AI (Optional)
 
-If you have an Anthropic API key, you can generate documentation:
+If you have an Anthropic API key, you can generate and apply documentation:
 
 ```bash
 export ANTHROPIC_API_KEY='your-key-here'
 
-# CLI will be available in future version
-# For now, use the Python API
+# Preview what would be changed (dry-run mode)
+doc-improver analyze ./your_project --apply --dry-run
+
+# Apply improvements (creates backups by default)
+doc-improver analyze ./your_project --apply
+
+# Apply improvements without backups
+doc-improver analyze ./your_project --apply --no-backup
+
+# Limit number of improvements
+doc-improver analyze ./your_project --apply --max-improvements 5
 ```
 
-## Project Status: v0.2.0-beta
+## Project Status: v1.0.0-rc
 
-**What's Tested:**
-- ✅ Core imports work
-- ✅ Code exploration works (tested on examples/test_project)
-- ✅ Gap detection works
-- ✅ Can find undocumented code
+**Fully Working & Tested:**
+- ✅ CLI commands (check, analyze, example)
+- ✅ Code exploration (Python AST-based, JavaScript regex-based)
+- ✅ Gap detection with severity classification
+- ✅ Multiple output formats (table, JSON, simple)
+- ✅ Filtering (severity, file patterns)
+- ✅ Statistics mode
+- ✅ Verbose mode with detailed information
+- ✅ Dry-run preview
 
-**What's NOT Fully Tested:**
-- ⚠️ AI generation (limited testing)
-- ⚠️ Automatic code modification (use with caution)
-- ⚠️ Website crawling
-- ⚠️ Large codebase performance
+**Working with API Key:**
+- ✅ AI documentation generation
+- ✅ Automatic file backups
+- ✅ AST-based code modification (with libcst)
+
+**Not Fully Tested:**
+- ⚠️ Very large codebases (1000+ files)
+- ⚠️ Website crawling feature
+- ⚠️ Git integration features
+
+## CLI Commands
+
+### `doc-improver check`
+Verify your setup and check if everything is configured correctly.
+
+### `doc-improver analyze <path>`
+Analyze code for documentation gaps with these options:
+
+**Output Formats:**
+- `--format table` (default): Rich table display
+- `--format json`: Machine-readable JSON output
+- `--format simple`: Plain text for easy parsing
+
+**Filtering:**
+- `--min-severity [critical|high|medium|low]`: Only show gaps at or above severity
+- `--include "pattern"`: Only analyze files matching pattern (can use multiple times)
+- `--exclude "pattern"`: Skip files matching pattern (can use multiple times)
+
+**Display Options:**
+- `--verbose, -v`: Show detailed gap information
+- `--stats-only`: Show only statistics without detailed gaps
+
+**AI Features (requires API key):**
+- `--apply`: Generate and apply improvements
+- `--dry-run`: Preview changes without applying
+- `--backup / --no-backup`: Control backup creation (default: on)
+- `--max-improvements N`: Limit number of improvements to apply
+
+### `doc-improver example`
+Run analysis on built-in example project (no API key needed).
+
+## Use Cases
+
+### CI/CD Integration
+```bash
+# Check documentation quality in CI pipeline
+doc-improver analyze ./src --stats-only --format json > docs-report.json
+
+# Fail build if critical gaps exist
+doc-improver analyze ./src --min-severity critical --format simple
+```
+
+### Code Review Workflow
+```bash
+# Review only high-priority gaps
+doc-improver analyze ./src --min-severity high --verbose
+
+# Preview improvements before committing
+doc-improver analyze ./src --apply --dry-run --max-improvements 5
+```
+
+### Incremental Improvements
+```bash
+# Focus on one module at a time
+doc-improver analyze ./src --include "auth/*.py"
+
+# Skip test files
+doc-improver analyze ./src --exclude "test_*" --exclude "*_test.py"
+
+# Fix only critical issues first
+doc-improver analyze ./src --min-severity critical --apply --max-improvements 10
+```
+
+### Quick Health Check
+```bash
+# Get quick overview
+doc-improver analyze ./src --stats-only
+
+# Output:
+# Total entities analyzed: 150
+# Documented: 95 (63.3%)
+# Undocumented: 55 (36.7%)
+#
+# Total documentation gaps: 87
+#   CRITICAL: 12
+#   HIGH: 23
+#   MEDIUM: 34
+#   LOW: 18
+```
 
 ## Features
 
@@ -91,14 +192,15 @@ export ANTHROPIC_API_KEY='your-key-here'
 - **Code Exploration**: Python (AST-based), JavaScript/TypeScript (regex-based)
 - **Gap Detection**: 12 types of documentation issues
 - **Severity Classification**: Critical, High, Medium, Low
-- **Caching**: SQLite-based caching for faster re-runs
-- **Metrics**: Track improvements over time
+- **Multiple Output Formats**: Table, JSON, Simple text
+- **Filtering**: By severity, file patterns, and more
+- **Statistics Mode**: Quick overview of documentation health
 
-### Advanced Features (Experimental)
-- **AI Generation**: Requires Anthropic API key
-- **Interactive Review**: Review improvements one-by-one
-- **Git Integration**: Create branches and PRs
-- **Batch Processing**: Async API calls
+### AI Features (Requires API Key)
+- **Documentation Generation**: Uses Claude AI to generate improvements
+- **Dry-Run Mode**: Preview changes before applying
+- **Automatic Backups**: Creates backups before modifying files
+- **Batch Processing**: Process multiple improvements efficiently
 
 ## Architecture
 
