@@ -52,7 +52,7 @@ dev = [
 ]
 
 [project.scripts]
-doc-improver = "doc_improver.cli:main"
+doc-improver = "doc_improver.cli.simple_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
