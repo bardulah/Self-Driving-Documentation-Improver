@@ -43,7 +43,11 @@ def cli():
 @click.option('--max-improvements', type=int, default=10, help='Maximum improvements to apply')
 @click.option('--verbose', '-v', is_flag=True, help='Show detailed output')
 @click.option('--format', type=click.Choice(['table', 'json', 'simple']), default='table', help='Output format')
-def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvements: int, verbose: bool, format: str):
+@click.option('--min-severity', type=click.Choice(['critical', 'high', 'medium', 'low']), default='low', help='Minimum severity to report')
+@click.option('--stats-only', is_flag=True, help='Show only statistics, no detailed gaps')
+@click.option('--include', multiple=True, help='Include file patterns (e.g., "*.py")')
+@click.option('--exclude', multiple=True, help='Exclude file patterns (e.g., "test_*")')
+def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvements: int, verbose: bool, format: str, min_severity: str, stats_only: bool, include: tuple, exclude: tuple):
     """
     Analyze code for documentation gaps.
 
@@ -52,6 +56,9 @@ def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvement
         doc-improver analyze ./my_project --verbose
         doc-improver analyze ./my_project --apply --dry-run
         doc-improver analyze ./my_project --format json
+        doc-improver analyze ./my_project --min-severity high
+        doc-improver analyze ./my_project --stats-only
+        doc-improver analyze ./my_project --include "*.py" --exclude "test_*"
     """
     console.print(Panel.fit(
         "[bold cyan]Documentation Improver[/bold cyan]\n"
@@ -64,9 +71,13 @@ def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvement
     # Step 1: Explore
     console.print(f"\n[cyan]Step 1:[/cyan] Exploring code in [bold]{target_path}[/bold]")
 
+    # Build exclude patterns
+    exclude_patterns = list(exclude) if exclude else []
+
     config = ExplorationConfig(
         target_type=TargetType.CODE,
-        target_path_or_url=str(target_path)
+        target_path_or_url=str(target_path),
+        exclude_patterns=exclude_patterns
     )
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
@@ -76,6 +87,19 @@ def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvement
         entities = explorer.explore()
 
         progress.update(task, description=f"Found {len(entities)} entities")
+
+    # Filter entities by include patterns if specified
+    if include:
+        from fnmatch import fnmatch
+        filtered_entities = []
+        for entity in entities:
+            for pattern in include:
+                if fnmatch(entity.file_path, pattern) or fnmatch(Path(entity.file_path).name, pattern):
+                    filtered_entities.append(entity)
+                    break
+        entities = filtered_entities
+        if verbose:
+            console.print(f"  [dim]Filtered to {len(entities)} entities matching include patterns[/dim]")
 
     stats = explorer.get_stats()
     console.print(f"  Found: {stats['total_entities']} total, {stats['undocumented']} undocumented")
@@ -90,14 +114,26 @@ def analyze(path: str, apply: bool, dry_run: bool, backup: bool, max_improvement
     detector = GapDetector()
     gaps = detector.analyze_code_entities(entities)
 
+    # Filter gaps by minimum severity
+    if min_severity != 'low':
+        from doc_improver.models import Severity
+        severity_order = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
+        min_level = severity_order[min_severity]
+        gaps = [g for g in gaps if severity_order[g.severity.value] >= min_level]
+        if verbose:
+            console.print(f"  [dim]Filtered to {len(gaps)} gaps with severity >= {min_severity}[/dim]")
+
     if not gaps:
         console.print("[green]✓ No documentation gaps found! Code is well documented.[/green]")
         return
 
     console.print(f"  Found {len(gaps)} gaps")
 
-    # Show summary table
-    _show_gap_summary(gaps, format=format, verbose=verbose)
+    # Show summary or stats only
+    if stats_only:
+        _show_stats_only(gaps, entities)
+    else:
+        _show_gap_summary(gaps, format=format, verbose=verbose)
 
     # Step 3: Generate improvements (if API key available)
     if apply:
@@ -255,6 +291,40 @@ def check():
         if not can_apply_improvements():
             console.print("\nTo install libcst:")
             console.print("  pip install libcst")
+
+
+def _show_stats_only(gaps, entities):
+    """Show only statistics without detailed gap information."""
+    from doc_improver.models import Severity
+
+    console.print("\n[bold]Documentation Statistics:[/bold]\n")
+
+    # Entity stats
+    console.print(f"  Total entities analyzed: {len(entities)}")
+    documented = len([e for e in entities if e.docstring])
+    undocumented = len(entities) - documented
+    console.print(f"  Documented: {documented} ({documented/len(entities)*100:.1f}%)")
+    console.print(f"  Undocumented: {undocumented} ({undocumented/len(entities)*100:.1f}%)")
+
+    # Gap stats by severity
+    console.print(f"\n  Total documentation gaps: {len(gaps)}")
+    for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
+        severity_gaps = [g for g in gaps if g.severity == severity]
+        if severity_gaps:
+            color = {"critical": "red", "high": "yellow", "medium": "blue", "low": "cyan"}[severity.value]
+            console.print(f"    [{color}]{severity.value.upper()}[/{color}]: {len(severity_gaps)}")
+
+    # Gap stats by type
+    console.print(f"\n  Gaps by type:")
+    gap_types = {}
+    for gap in gaps:
+        gap_type = gap.gap_type.value
+        gap_types[gap_type] = gap_types.get(gap_type, 0) + 1
+
+    for gap_type, count in sorted(gap_types.items(), key=lambda x: x[1], reverse=True):
+        console.print(f"    {gap_type}: {count}")
+
+    console.print()
 
 
 def _show_gap_summary(gaps, format='table', verbose=False):
