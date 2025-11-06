@@ -2,7 +2,7 @@
 
 import difflib
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import logging
 
 from doc_improver.models import (
